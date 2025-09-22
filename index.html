@@ -1,116 +1,142 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Word Document Processor (Preserve Formatting)</title>
+  <meta charset="utf-8" />
+  <title>Word Document Processor (with .doc converter suggestion)</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pizzip/3.1.7/pizzip.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 10px; }
+    .buttons { margin-top: 10px; }
+    button { margin-right: 10px; padding: 8px 14px; }
+    #status { margin-top: 15px; background:#f7f7f8; padding:10px; border-radius:5px; min-height:28px; white-space:pre-wrap; }
+    .converter-box { margin-top:15px; padding:12px; background:#fff3cd; border:1px solid #ffeeba; border-radius:6px; }
+    .converter-box a { color:#0056b3; text-decoration:none; margin-right:10px; }
+  </style>
 </head>
 <body>
-  <h1>Word Document Processor</h1>
+  <h2>Word Document Processor</h2>
+  <p>Upload your Word document (.docx recommended). If you upload .doc, you’ll get quick conversion suggestions.</p>
 
-  <!-- Accept both .docx and .doc -->
-  <input type="file" id="wordFile" accept=".doc,.docx,.dot,.dotx">
-  <br><br>
+  <input type="file" id="fileInput" accept=".doc,.docx,.dot,.dotx" />
 
-  <button id="uploadButton">Upload</button>
-  <button id="processButton" disabled>Process</button>
-  <button id="downloadButton" disabled>Download</button>
+  <div class="buttons">
+    <button id="uploadBtn">Upload</button>
+    <button id="processBtn" disabled>Process</button>
+    <button id="downloadBtn" disabled>Download</button>
+  </div>
 
-  <script>
-    let originalZip = null;
-    let processedBlob = null;
+  <div id="status">Status: waiting for upload...</div>
+  <div id="converter" class="converter-box" style="display:none;">
+    <strong>⚠️ This file is not .docx.</strong><br>
+    Please convert it first using one of these free tools:<br><br>
+    <a href="https://cloudconvert.com/doc-to-docx" target="_blank">CloudConvert (DOC → DOCX)</a>
+    <a href="https://convertio.co/doc-docx/" target="_blank">Convertio</a>
+    <a href="https://docs.google.com/" target="_blank">Google Docs (Upload → File → Download as DOCX)</a>
+    <a href="https://www.libreoffice.org/download/download-libreoffice/" target="_blank">LibreOffice (Desktop)</a>
+  </div>
 
-    // Replacement map
-    const charMap = {
-      "à": "a", "À": "A",
-      "è": "e", "È": "E",
-      "é": "e", "É": "E",
-      "ì": "i", "Ì": "I",
-      "ò": "o", "Ò": "O",
-      "ù": "u", "Ù": "U",
-      "—": ", "
-    };
+<script>
+(function(){
+  const statusEl = document.getElementById("status");
+  const converterBox = document.getElementById("converter");
+  const fileInput = document.getElementById("fileInput");
+  const uploadBtn = document.getElementById("uploadBtn");
+  const processBtn = document.getElementById("processBtn");
+  const downloadBtn = document.getElementById("downloadBtn");
 
-    function cleanText(text) {
-      let result = text;
-      for (const [k, v] of Object.entries(charMap)) {
-        result = result.split(k).join(v);
+  let zip = null;
+  let processedBlob = null;
+  let originalFileName = "processed.docx";
+
+  const charMap = {
+    "à":"a","À":"A","è":"e","È":"E","é":"e","É":"E",
+    "ì":"i","Ì":"I","ò":"o","Ò":"O","ù":"u","Ù":"U","—":", "
+  };
+
+  function setStatus(msg){ statusEl.textContent = "Status: " + msg; }
+  function cleanText(txt){
+    if(!txt) return txt;
+    let out = txt;
+    for(const [k,v] of Object.entries(charMap)){ out = out.split(k).join(v); }
+    return out.replace(/[^\x00-\x7F•,\t\n\r ]/g,"");
+  }
+
+  function processXml(xml){
+    try{
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xml,"application/xml");
+      if(xmlDoc.getElementsByTagName("parsererror").length){
+        return xml.replace(/(<w:t[^>]*>)([\s\S]*?)(<\/w:t>)/g,
+          (m,o,t,c)=>o+cleanText(t)+c);
       }
-      // Remove unwanted non-ASCII characters (except • and ,)
-      result = result.replace(/[^\x00-\x7F•,]/g, "");
-      return result;
+      const tNodes = xmlDoc.getElementsByTagName("w:t");
+      for(let i=0;i<tNodes.length;i++){ tNodes[i].textContent = cleanText(tNodes[i].textContent); }
+      return new XMLSerializer().serializeToString(xmlDoc);
+    }catch(e){
+      return xml.replace(/(<w:t[^>]*>)([\s\S]*?)(<\/w:t>)/g,
+        (m,o,t,c)=>o+cleanText(t)+c);
+    }
+  }
+
+  function listXmlParts(zip){
+    const parts=[];
+    const re=/^word\/(document|header\d+|footer\d+|footnotes|endnotes|comments)\.xml$/i;
+    Object.keys(zip.files).forEach(n=>{ if(re.test(n)) parts.push(n); });
+    if(!parts.includes("word/document.xml") && zip.file("word/document.xml")) parts.unshift("word/document.xml");
+    return parts;
+  }
+
+  uploadBtn.addEventListener("click",()=>{
+    processedBlob=null; downloadBtn.disabled=true; processBtn.disabled=true; zip=null; converterBox.style.display="none";
+    const file=fileInput.files[0];
+    if(!file){ setStatus("Please choose a Word file."); return; }
+
+    const ext = file.name.split(".").pop().toLowerCase();
+    if(ext!=="docx"){
+      setStatus("File is not .docx — conversion required.");
+      converterBox.style.display="block";
+      return;
     }
 
-    // Upload handler
-    document.getElementById("uploadButton").onclick = function () {
-      const file = document.getElementById("wordFile").files[0];
-      if (!file) {
-        alert("Please select a Word file first!");
-        return;
-      }
-
-      // Check extension
-      if (!file.name.endsWith(".docx")) {
-        alert("This tool only works with .docx files. Please convert your file to .docx first (open in Word/LibreOffice and 'Save As → .docx').");
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = function (event) {
-        try {
-          const arrayBuffer = event.target.result;
-          originalZip = new PizZip(arrayBuffer);
-          alert("File uploaded successfully!");
-          document.getElementById("processButton").disabled = false;
-        } catch (err) {
-          console.error("Error loading file:", err);
-          alert("Invalid .docx file. Try opening and re-saving it in Word, then upload again.");
-        }
-      };
-      reader.readAsArrayBuffer(file); // Safe for .docx
-    };
-
-    // Process handler
-    document.getElementById("processButton").onclick = function () {
-      if (!originalZip) {
-        alert("Please upload a file first!");
-        return;
-      }
-
-      try {
-        // List of parts to process (main document + headers/footers if present)
-        const partsToProcess = ["word/document.xml"];
-        originalZip.file(/word\/header[0-9]*\.xml/).forEach(f => partsToProcess.push(f.name));
-        originalZip.file(/word\/footer[0-9]*\.xml/).forEach(f => partsToProcess.push(f.name));
-
-        partsToProcess.forEach(part => {
-          let xml = originalZip.file(part).asText();
-          xml = cleanText(xml);
-          originalZip.file(part, xml);
-        });
-
-        processedBlob = originalZip.generate({
-          type: "blob",
-          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        });
-
-        alert("Document processed successfully!");
-        document.getElementById("downloadButton").disabled = false;
-      } catch (err) {
-        console.error("Processing error:", err);
-        alert("Error while processing the document.");
+    originalFileName=file.name.replace(/\.[^/.]+$/,"")+"_processed.docx";
+    const reader=new FileReader();
+    reader.onload=(e)=>{
+      try{
+        zip=new PizZip(new Uint8Array(e.target.result));
+        if(!zip.file("word/document.xml")){ setStatus("Not a valid .docx (missing document.xml)."); return; }
+        setStatus("Upload successful. Ready to process."); processBtn.disabled=false;
+      }catch(err){
+        console.error(err);
+        setStatus("Invalid .docx. Try re-saving in Word as .docx, then upload again.");
       }
     };
+    reader.readAsArrayBuffer(file);
+    setStatus("Reading file...");
+  });
 
-    // Download handler
-    document.getElementById("downloadButton").onclick = function () {
-      if (!processedBlob) {
-        alert("No processed document available!");
-        return;
-      }
-      saveAs(processedBlob, "processed_document.docx"); // Always .docx
-    };
-  </script>
+  processBtn.addEventListener("click",()=>{
+    if(!zip){ setStatus("Upload first."); return; }
+    setStatus("Processing...");
+    try{
+      const parts=listXmlParts(zip);
+      parts.forEach(p=>{
+        const bin=zip.file(p).asBinary();
+        const text=new TextDecoder("utf-8",{fatal:false}).decode(new Uint8Array([...bin].map(c=>c.charCodeAt(0))));
+        zip.file(p,processXml(text));
+      });
+      processedBlob=zip.generate({type:"blob",mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+      setStatus("Processing complete. Click Download.");
+      downloadBtn.disabled=false;
+    }catch(err){ console.error(err); setStatus("Processing failed. See console."); }
+  });
+
+  downloadBtn.addEventListener("click",()=>{
+    if(!processedBlob){ setStatus("Nothing to download."); return; }
+    saveAs(processedBlob,originalFileName);
+    setStatus("Download started: "+originalFileName);
+  });
+})();
+</script>
 </body>
 </html>
