@@ -12,7 +12,7 @@ button { margin-right: 10px; padding: 6px 12px; }
 <body>
 
 <h2>Intelligent Word Cleaner</h2>
-<input type="file" id="fileInput" accept=".docx" />
+<input type="file" id="fileInput" accept=".doc,.docx" />
 <div>
   <button id="uploadBtn">Upload</button>
   <button id="processBtn" disabled>Process</button>
@@ -21,10 +21,10 @@ button { margin-right: 10px; padding: 6px 12px; }
 <div id="status">Status: waiting for upload...</div>
 
 <script type="module">
-// Import ES module versions of docx and FileSaver
-import * as docx from "https://cdn.jsdelivr.net/npm/docx@7.1.3/build/index.mjs";
-import { saveAs } from "https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.mjs";
+// Import necessary modules
 import mammoth from "https://cdn.jsdelivr.net/npm/mammoth/mammoth.browser.min.js";
+import { Document, Packer, Paragraph, TextRun } from "https://cdn.jsdelivr.net/npm/docx@7.3.0/build/index.mjs";
+import { saveAs } from "https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.mjs";
 
 const uploadBtn = document.getElementById("uploadBtn");
 const processBtn = document.getElementById("processBtn");
@@ -37,7 +37,7 @@ let cleanedText = "";
 let processedBlob = null;
 let originalFileName = "processed_document.docx";
 
-// Character replacement map
+// Character replacement map for cleaning
 const charMap = {
   "à":"a","À":"A","è":"e","È":"E","é":"e","É":"E",
   "ì":"i","Ì":"I","ò":"o","Ò":"O","ù":"u","Ù":"U",
@@ -49,12 +49,16 @@ function setStatus(msg){ statusEl.textContent = "Status: " + msg; }
 function cleanText(text){
   let out = text;
   for(const [k,v] of Object.entries(charMap)){ out = out.split(k).join(v); }
-  return out.replace(/[^\x00-\x7F•,\t\n\r ]/g,""); // remove unwanted chars
+  // Remove non-ASCII characters except for specific symbols, tabs, and newlines
+  return out.replace(/[^\x00-\x7F•,\t\n\r ]/g,"");
 }
 
-// Upload
+// 1. Upload Process: Handles the file selection
 uploadBtn.onclick = () => {
-  if(!fileInput.files[0]) { setStatus("Please select a Word (.docx) file."); return; }
+  if(!fileInput.files[0]) {
+    setStatus("Please select a Word (.doc or .docx) file.");
+    return;
+  }
   uploadedFile = fileInput.files[0];
   originalFileName = uploadedFile.name.replace(/\.[^/.]+$/,"") + "_cleaned.docx";
   processedBlob = null;
@@ -63,41 +67,50 @@ uploadBtn.onclick = () => {
   downloadBtn.disabled = true;
 };
 
-// Process
+// 2. Process Button: Cleans the uploaded document
 processBtn.onclick = async () => {
-  if(!uploadedFile){ setStatus("Upload a file first."); return; }
+  if(!uploadedFile){
+    setStatus("Upload a file first.");
+    return;
+  }
   setStatus("Processing...");
   try {
     const arrayBuffer = await uploadedFile.arrayBuffer();
+    // Extract raw text using Mammoth
     const result = await mammoth.extractRawText({arrayBuffer});
     cleanedText = cleanText(result.value || "");
 
-    // Generate new DOCX
-    const doc = new docx.Document({
+    // Create a new DOCX document with the cleaned text
+    const doc = new Document({
       sections: [{
         properties: {},
         children: [
-          new docx.Paragraph({
+          new Paragraph({
             children: [
-              new docx.TextRun({ text: cleanedText, font:"Times New Roman", size:24 })
+              new TextRun({ text: cleanedText, font:"Times New Roman", size:24 })
             ]
           })
         ]
       }]
     });
 
-    processedBlob = await docx.Packer.toBlob(doc);
+    // Pack the document into a blob for download
+    processedBlob = await Packer.toBlob(doc);
     downloadBtn.disabled = false;
     setStatus("Processing complete. Ready to download.");
   } catch(err) {
     console.error(err);
-    setStatus("Error during processing: " + err);
+    setStatus("Error during processing: " + err.message);
   }
 };
 
-// Download
+// 3. Download Process: Saves the cleaned document
 downloadBtn.onclick = () => {
-  if(!processedBlob){ setStatus("No processed file to download."); return; }
+  if(!processedBlob){
+    setStatus("No processed file to download.");
+    return;
+  }
+  // Use FileSaver to trigger the download
   saveAs(processedBlob, originalFileName);
   setStatus("Download started.");
 };
