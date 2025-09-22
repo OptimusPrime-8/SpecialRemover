@@ -1,121 +1,125 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Intelligent Word Cleaner</title>
-<style>
-body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; }
-button { margin-right: 10px; padding: 6px 12px; }
-#status { margin-top:10px; min-height:24px; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload and Process Word Document</title>
 </head>
 <body>
+    <h1>Upload Your Word Document for Processing</h1>
 
-<h2>Intelligent Word Cleaner</h2>
-<input type="file" id="fileInput" accept=".doc,.docx" />
-<div>
-  <button id="uploadBtn">Upload</button>
-  <button id="processBtn" disabled>Process</button>
-  <button id="downloadBtn" disabled>Download</button>
-</div>
-<div id="status">Status: waiting for upload...</div>
+    <input type="file" id="wordFile" accept=".docx">
+    <button id="uploadBtn">Upload</button>
+    <button id="processDownloadBtn">Process and Download</button>
 
-<script type="module">
-// Import necessary modules
-import mammoth from "https://cdn.jsdelivr.net/npm/mammoth/mammoth.browser.min.js";
-import { Document, Packer, Paragraph, TextRun } from "https://cdn.jsdelivr.net/npm/docx@7.3.0/build/index.mjs";
-import { saveAs } from "https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.mjs";
+    <h3>Uploaded Text</h3>
+    <div id="result"></div>
 
-const uploadBtn = document.getElementById("uploadBtn");
-const processBtn = document.getElementById("processBtn");
-const downloadBtn = document.getElementById("downloadBtn");
-const fileInput = document.getElementById("fileInput");
-const statusEl = document.getElementById("status");
+    <!-- Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.2/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/docx/7.1.3/docx.min.js"></script>
 
-let uploadedFile = null;
-let cleanedText = "";
-let processedBlob = null;
-let originalFileName = "processed_document.docx";
+    <script>
+        // Character map for replacing Italian accented characters
+        const charMap = {
+            "à": "a", "À": "A",
+            "è": "e", "È": "E",
+            "é": "e", "É": "E",
+            "ì": "i", "Ì": "I",
+            "ò": "o", "Ò": "O",
+            "ù": "u", "Ù": "U",
+            "—": ", "
+        };
 
-// Character replacement map for cleaning
-const charMap = {
-  "à":"a","À":"A","è":"e","È":"E","é":"e","É":"E",
-  "ì":"i","Ì":"I","ò":"o","Ò":"O","ù":"u","Ù":"U",
-  "—":", "
-};
+        const exceptionalWords = new Set(["μ", "µ"]);
+        let uploadedText = ""; // store uploaded text
 
-function setStatus(msg){ statusEl.textContent = "Status: " + msg; }
+        function cleanText(text) {
+            if (exceptionalWords.has(text.trim())) return text;
 
-function cleanText(text){
-  let out = text;
-  for(const [k,v] of Object.entries(charMap)){ out = out.split(k).join(v); }
-  // Remove non-ASCII characters except for specific symbols, tabs, and newlines
-  return out.replace(/[^\x00-\x7F•,\t\n\r ]/g,"");
-}
+            let changes = [];
 
-// 1. Upload Process: Handles the file selection
-uploadBtn.onclick = () => {
-  if(!fileInput.files[0]) {
-    setStatus("Please select a Word (.doc or .docx) file.");
-    return;
-  }
-  uploadedFile = fileInput.files[0];
-  originalFileName = uploadedFile.name.replace(/\.[^/.]+$/,"") + "_cleaned.docx";
-  processedBlob = null;
-  setStatus("File uploaded. Ready to process.");
-  processBtn.disabled = false;
-  downloadBtn.disabled = true;
-};
+            for (const [k, v] of Object.entries(charMap)) {
+                if (text.includes(k)) {
+                    changes.push(k);
+                    text = text.split(k).join(v);
+                }
+            }
 
-// 2. Process Button: Cleans the uploaded document
-processBtn.onclick = async () => {
-  if(!uploadedFile){
-    setStatus("Upload a file first.");
-    return;
-  }
-  setStatus("Processing...");
-  try {
-    const arrayBuffer = await uploadedFile.arrayBuffer();
-    // Extract raw text using Mammoth
-    const result = await mammoth.extractRawText({arrayBuffer});
-    cleanedText = cleanText(result.value || "");
+            text = removeUnwantedSpecials(text, changes);
 
-    // Create a new DOCX document with the cleaned text
-    const doc = new Document({
-      sections: [{
-        properties: {},
-        children: [
-          new Paragraph({
-            children: [
-              new TextRun({ text: cleanedText, font:"Times New Roman", size:24 })
-            ]
-          })
-        ]
-      }]
-    });
+            if (changes.length > 0) console.log(`Changes: ${[...new Set(changes)].sort().join(", ")}`);
 
-    // Pack the document into a blob for download
-    processedBlob = await Packer.toBlob(doc);
-    downloadBtn.disabled = false;
-    setStatus("Processing complete. Ready to download.");
-  } catch(err) {
-    console.error(err);
-    setStatus("Error during processing: " + err.message);
-  }
-};
+            return text;
+        }
 
-// 3. Download Process: Saves the cleaned document
-downloadBtn.onclick = () => {
-  if(!processedBlob){
-    setStatus("No processed file to download.");
-    return;
-  }
-  // Use FileSaver to trigger the download
-  saveAs(processedBlob, originalFileName);
-  setStatus("Download started.");
-};
+        function removeUnwantedSpecials(text, changes) {
+            let newText = "";
+            for (const ch of text) {
+                if (/[\x00-\x7F]/.test(ch) || ch === "•" || ch === ",") {
+                    newText += ch;
+                } else {
+                    changes.push(ch);
+                }
+            }
+            return newText;
+        }
 
-</script>
+        async function readWordFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = function() {
+                    const arrayBuffer = reader.result;
+                    mammoth.extractRawText({ arrayBuffer: arrayBuffer })
+                        .then(result => resolve(result.value))
+                        .catch(err => reject(err));
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        }
 
+        document.getElementById("uploadBtn").addEventListener("click", async () => {
+            const file = document.getElementById("wordFile").files[0];
+            if (!file) return alert("Please select a file to upload.");
+
+            try {
+                uploadedText = await readWordFile(file);
+                document.getElementById("result").textContent = uploadedText;
+            } catch (err) {
+                console.error("Error uploading file:", err);
+            }
+        });
+
+        document.getElementById("processDownloadBtn").addEventListener("click", async () => {
+            if (!uploadedText) return alert("No file uploaded yet.");
+
+            const cleanedText = cleanText(uploadedText);
+
+            const doc = new docx.Document({
+                sections: [
+                    {
+                        properties: {},
+                        children: [
+                            new docx.Paragraph({
+                                children: [
+                                    new docx.TextRun({
+                                        text: cleanedText,
+                                        font: "Times New Roman",
+                                    }),
+                                ],
+                            }),
+                        ],
+                    },
+                ],
+            });
+
+            const blob = await docx.Packer.toBlob(doc);
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "processed_document.docx";
+            link.click();
+            URL.revokeObjectURL(link.href);
+        });
+    </script>
 </body>
 </html>
