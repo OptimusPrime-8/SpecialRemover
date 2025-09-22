@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clean Word Document</title>
+<style>
+    body { font-family: sans-serif; margin: 20px; }
+    button { margin: 5px; padding: 8px 12px; }
+    #preview-container {
+        margin-top: 25px;
+        border: 1px solid #ccc;
+        padding: 15px;
+        max-height: 400px;
+        overflow-y: auto;
+        background-color: #f9f9f9;
+    }
+    .preview-paragraph { margin-bottom: 10px; }
+</style>
+</head>
+<body>
+
+<h2>Clean and Download Word Document</h2>
+
+<input type="file" id="wordFile" accept=".docx">
+<br><br>
+<button id="uploadBtn">1. Upload</button>
+<button id="processBtn">2. Process & Preview</button>
+<button id="downloadBtn">3. Download "Write_Analyzed.docx"</button>
+
+<!-- PREVIEW AREA -->
+<div id="preview-container" style="display: none;">
+    <h3>Processed Content Preview:</h3>
+    <div id="preview-content"></div>
+</div>
+
+<!-- 
+  **CRITICAL FIX:** 'defer' ensures scripts load before running.
+-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.7.0/mammoth.browser.min.js" defer></script>
+<script src="https://unpkg.com/docx@8.5.0/build/index.js" defer></script>
+
+<script>
+// Wait for the document and scripts to be ready
+document.addEventListener('DOMContentLoaded', () => {
+
+    // Import necessary components from the docx library
+    const { Document, Packer, Paragraph, TextRun } = docx;
+
+    const charMap = {
+        "à": "a", "À": "A", "è": "e", "È": "E", "é": "e", "É": "E",
+        "ì": "i", "Ì": "I", "ò": "o", "Ò": "O", "ù": "u", "Ù": "U", "—": ", "
+    };
+    const exceptionalWords = new Set(["μ","µ"]);
+
+    let uploadedContent = [];
+    let processedContent = [];
+
+    // --- 1. Clean Text Function ---
+    function cleanText(text) {
+        if(exceptionalWords.has(text.trim())) return text;
+        let newText = text;
+        for(const [k,v] of Object.entries(charMap)) {
+            newText = newText.split(k).join(v);
+        }
+        // Remove non-ASCII except bullet and comma
+        newText = newText.split('').map(ch => (/[\x00-\x7F]/.test(ch) || ch==='•'||ch===',') ? ch : '').join('');
+        return newText;
+    }
+
+    // --- 2. Extract Content Function ---
+    async function extractWordContent(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = function() {
+                // Use mammoth to convert DOCX to simple HTML
+                mammoth.convertToHtml({ arrayBuffer: reader.result })
+                    .then(result => {
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = result.value;
+
+                        // Select all paragraphs, headings, and list items
+                        const elements = Array.from(tempDiv.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li'));
+                        
+                        const content = elements.map(el => {
+                            // Check for bold/italic from style or tags (<strong>, <em>)
+                            const isBold = el.style.fontWeight === 'bold' || el.closest('strong') !== null;
+                            const isItalic = el.style.fontStyle === 'italic' || el.closest('em') !== null;
+
+                            return {
+                                text: el.textContent || '',
+                                isList: el.tagName.toLowerCase() === 'li',
+                                bold: isBold,
+                                italic: isItalic
+                            };
+                        });
+                        resolve(content);
+                    })
+                    .catch(err => reject(err));
+            };
+            reader.onerror = reject;
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    // --- Button Handlers ---
+
+    // 1. UPLOAD
+    document.getElementById('uploadBtn').addEventListener('click', async () => {
+        const fileInput = document.getElementById('wordFile');
+        const file = fileInput.files[0];
+
+        if (!file) return alert("Please select a .docx file first.");
+
+        try {
+            uploadedContent = await extractWordContent(file);
+            alert(`File "${file.name}" uploaded successfully. Click 'Process' to continue.`);
+            document.getElementById('preview-container').style.display = 'none';
+        } catch (err) {
+            console.error("Error reading file:", err);
+            alert("Error reading Word file. Check the browser console (F12).");
+        }
+    });
+
+    // 2. PROCESS & PREVIEW
+    document.getElementById('processBtn').addEventListener('click', () => {
+        if (uploadedContent.length === 0) return alert("Please upload a file first.");
+
+        // Clean the text
+        processedContent = uploadedContent.map(p => ({
+            ...p,
+            text: cleanText(p.text)
+        }));
+
+        // --- Show Preview ---
+        const previewContainer = document.getElementById('preview-container');
+        const previewContent = document.getElementById('preview-content');
+        previewContent.innerHTML = ""; // Clear previous preview
+
+        processedContent.forEach(p => {
+            if (p.text.trim() === "") return; // Skip empty lines in preview
+
+            const div = document.createElement('div');
+            div.className = 'preview-paragraph';
+
+            if (p.isList) {
+                div.textContent = "• " + p.text;
+                div.style.marginLeft = "20px";
+            } else {
+                div.textContent = p.text;
+            }
+
+            if (p.bold) div.style.fontWeight = 'bold';
+            if (p.italic) div.style.fontStyle = 'italic';
+
+            previewContent.appendChild(div);
+        });
+
+        previewContainer.style.display = 'block';
+        alert("Text processed. Please review the preview below before downloading.");
+    });
+
+    // 3. DOWNLOAD
+    document.getElementById('downloadBtn').addEventListener('click', async () => {
+        if (processedContent.length === 0) return alert("Please 'Process' the file first.");
+
+        try {
+            // Filter out completely empty paragraphs
+            const validContent = processedContent.filter(p => p.text.trim() !== '');
+
+            if (validContent.length === 0) {
+                return alert("No content available to download after processing.");
+            }
+
+            // Build the new document
+            const docChildren = validContent.map(p => {
+                return new Paragraph({
+                    // NO 'heading' property is used, so it defaults to "Normal" style.
+                    bullet: p.isList ? { level: 0 } : undefined,
+                    children: [
+                        new TextRun({
+                            text: p.text,
+                            bold: p.bold,
+                            italics: p.italic,
+                            // NO 'font' property is used, keeping the default document font.
+                        })
+                    ]
+                });
+            });
+
+            const doc = new Document({
+                sections: [{
+                    properties: {},
+                    children: docChildren
+                }]
+            });
+
+            // Generate and download the file
+            const blob = await Packer.toBlob(doc);
+            
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = "Write_Analyzed.docx";
+            document.body.appendChild(link);
+            link.click();
+            
+            // Clean up
+            setTimeout(() => {
+                document.body.removeChild(link);
+                URL.revokeObjectURL(link.href);
+            }, 100);
+
+        } catch (err) {
+            console.error("Error generating file:", err);
+            alert("An error occurred during download. Check the console (F12).");
+        }
+    });
+
+}); // End DOMContentLoaded
+</script>
+
+</body>
+</html>
