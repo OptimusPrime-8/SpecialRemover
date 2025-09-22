@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <title>Word Processor</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.2/mammoth.browser.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/docx/7.1.3/docx.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@7.1.3/build/index.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 <style>
 body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; }
@@ -36,7 +36,11 @@ let processedBlob = null;
 let originalFileName = "processed_document.docx";
 
 // Character replacement map
-const charMap = {"à":"a","À":"A","è":"e","È":"E","é":"e","É":"E","ì":"i","Ì":"I","ò":"o","Ò":"O","ù":"u","Ù":"U","—":", "};
+const charMap = {
+  "à":"a","À":"A","è":"e","È":"E","é":"e","É":"E",
+  "ì":"i","Ì":"I","ò":"o","Ò":"O","ù":"u","Ù":"U",
+  "—":", "
+};
 
 function setStatus(msg){ statusEl.textContent = "Status: " + msg; }
 
