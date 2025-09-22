@@ -2,10 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Word Processor</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.2/mammoth.browser.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/docx@7.1.3/build/index.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<title>Intelligent Word Cleaner</title>
 <style>
 body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; }
 button { margin-right: 10px; padding: 6px 12px; }
@@ -14,7 +11,7 @@ button { margin-right: 10px; padding: 6px 12px; }
 </head>
 <body>
 
-<h2>Word Processor</h2>
+<h2>Intelligent Word Cleaner</h2>
 <input type="file" id="fileInput" accept=".docx" />
 <div>
   <button id="uploadBtn">Upload</button>
@@ -23,7 +20,12 @@ button { margin-right: 10px; padding: 6px 12px; }
 </div>
 <div id="status">Status: waiting for upload...</div>
 
-<script>
+<script type="module">
+// Import ES module versions of docx and FileSaver
+import * as docx from "https://cdn.jsdelivr.net/npm/docx@7.1.3/build/index.mjs";
+import { saveAs } from "https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.mjs";
+import mammoth from "https://cdn.jsdelivr.net/npm/mammoth/mammoth.browser.min.js";
+
 const uploadBtn = document.getElementById("uploadBtn");
 const processBtn = document.getElementById("processBtn");
 const downloadBtn = document.getElementById("downloadBtn");
@@ -47,52 +49,50 @@ function setStatus(msg){ statusEl.textContent = "Status: " + msg; }
 function cleanText(text){
   let out = text;
   for(const [k,v] of Object.entries(charMap)){ out = out.split(k).join(v); }
-  return out.replace(/[^\x00-\x7F•,\t\n\r ]/g,"");
+  return out.replace(/[^\x00-\x7F•,\t\n\r ]/g,""); // remove unwanted chars
 }
 
 // Upload
 uploadBtn.onclick = () => {
-  if(!fileInput.files[0]) { setStatus("Please select a .docx file."); return; }
+  if(!fileInput.files[0]) { setStatus("Please select a Word (.docx) file."); return; }
   uploadedFile = fileInput.files[0];
-  originalFileName = uploadedFile.name.replace(/\.[^/.]+$/,"") + "_processed.docx";
-  processedBlob = null; // reset
+  originalFileName = uploadedFile.name.replace(/\.[^/.]+$/,"") + "_cleaned.docx";
+  processedBlob = null;
   setStatus("File uploaded. Ready to process.");
   processBtn.disabled = false;
   downloadBtn.disabled = true;
 };
 
 // Process
-processBtn.onclick = () => {
-  if(!uploadedFile) { setStatus("Upload a file first."); return; }
+processBtn.onclick = async () => {
+  if(!uploadedFile){ setStatus("Upload a file first."); return; }
   setStatus("Processing...");
-  const reader = new FileReader();
-  reader.onload = function(e){
-    const arrayBuffer = e.target.result;
-    mammoth.extractRawText({arrayBuffer: arrayBuffer})
-      .then(result => {
-        cleanedText = cleanText(result.value);
-        setStatus("Text cleaned. Ready to download.");
+  try {
+    const arrayBuffer = await uploadedFile.arrayBuffer();
+    const result = await mammoth.extractRawText({arrayBuffer});
+    cleanedText = cleanText(result.value || "");
 
-        // Generate new DOCX
-        const doc = new docx.Document({
-          sections: [{
-            properties: {},
+    // Generate new DOCX
+    const doc = new docx.Document({
+      sections: [{
+        properties: {},
+        children: [
+          new docx.Paragraph({
             children: [
-              new docx.Paragraph({children:[
-                new docx.TextRun({text: cleanedText, font:"Times New Roman", size:24})
-              ]})
+              new docx.TextRun({ text: cleanedText, font:"Times New Roman", size:24 })
             ]
-          }]
-        });
+          })
+        ]
+      }]
+    });
 
-        docx.Packer.toBlob(doc).then(blob=>{
-          processedBlob = blob;
-          downloadBtn.disabled = false;
-        }).catch(err => setStatus("Error generating DOCX: " + err));
-      })
-      .catch(err => setStatus("Error extracting text: " + err));
-  };
-  reader.readAsArrayBuffer(uploadedFile);
+    processedBlob = await docx.Packer.toBlob(doc);
+    downloadBtn.disabled = false;
+    setStatus("Processing complete. Ready to download.");
+  } catch(err) {
+    console.error(err);
+    setStatus("Error during processing: " + err);
+  }
 };
 
 // Download
@@ -101,6 +101,7 @@ downloadBtn.onclick = () => {
   saveAs(processedBlob, originalFileName);
   setStatus("Download started.");
 };
+
 </script>
 
 </body>
