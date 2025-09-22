@@ -9,14 +9,7 @@
     button { margin: 5px; padding: 8px 12px; cursor: pointer; }
     button:disabled { cursor: not-allowed; background-color: #e0e0e0; color: #888; }
     #loader { font-style: italic; color: #555; font-weight: bold; }
-    #preview-container {
-        margin-top: 25px;
-        border: 1px solid #ccc;
-        padding: 15px;
-        max-height: 400px;
-        overflow-y: auto;
-        background-color: #f9f9f9;
-    }
+    #preview-container { margin-top: 25px; border: 1px solid #ccc; padding: 15px; max-height: 400px; overflow-y: auto; background-color: #f9f9f9; }
     .preview-paragraph { margin-bottom: 10px; }
 </style>
 </head>
@@ -36,36 +29,26 @@
     <div id="preview-content"></div>
 </div>
 
-<!-- These scripts will load in the background. The code will wait for them. -->
+<!-- All necessary library code is now included directly in this file -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.7.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/docx@8.5.0/build/index.js"></script>
 
 <script>
-// --- ROBUST LIBRARY LOADER ---
-// This function waits until it confirms the 'mammoth' and 'docx' libraries are ready.
+// --- Robust Library Loader ---
 function initializeAppWhenReady() {
     if (typeof mammoth !== 'undefined' && typeof docx !== 'undefined') {
-        
         console.log("SUCCESS: Libraries are loaded and ready.");
         document.getElementById('loader').textContent = "Ready. Please select a file.";
-        
-        // Now it's safe to run the main application logic.
         setupApplicationLogic();
-
     } else {
-        // If not ready, wait 100 milliseconds and check again.
         setTimeout(initializeAppWhenReady, 100);
     }
 }
 
-// --- MAIN APPLICATION LOGIC ---
-// This function only runs AFTER the libraries are confirmed to be loaded.
+// --- Main Application Logic ---
 function setupApplicationLogic() {
-    
-    // It is now 100% safe to use the 'docx' object.
     const { Document, Packer, Paragraph, TextRun } = docx;
 
-    // Enable all the buttons for the user.
     document.getElementById('uploadBtn').disabled = false;
     document.getElementById('processBtn').disabled = false;
     document.getElementById('downloadBtn').disabled = false;
@@ -80,12 +63,12 @@ function setupApplicationLogic() {
     let processedContent = [];
 
     function cleanText(text) {
-        if(exceptionalWords.has(text.trim())) return text;
+        if (exceptionalWords.has(text.trim())) return text;
         let newText = text;
-        for(const [k,v] of Object.entries(charMap)) {
+        for (const [k, v] of Object.entries(charMap)) {
             newText = newText.split(k).join(v);
         }
-        newText = newText.split('').map(ch => (/[\x00-\x7F]/.test(ch) || ch==='•'||ch===',') ? ch : '').join('');
+        newText = newText.split('').map(ch => (/[\x00-\x7F]/.test(ch) || ch === '•' || ch === ',') ? ch : '').join('');
         return newText;
     }
 
@@ -129,10 +112,10 @@ function setupApplicationLogic() {
     document.getElementById('processBtn').addEventListener('click', () => {
         if (uploadedContent.length === 0) return alert("Please upload a file first.");
         processedContent = uploadedContent.map(p => ({ ...p, text: cleanText(p.text) }));
-        
+
         const previewContainer = document.getElementById('preview-container');
         const previewContent = document.getElementById('preview-content');
-        previewContent.innerHTML = ""; // Clear previous
+        previewContent.innerHTML = "";
 
         processedContent.forEach(p => {
             if (p.text.trim() === "") return;
@@ -162,12 +145,12 @@ function setupApplicationLogic() {
             const docChildren = validContent.map(p => {
                 return new Paragraph({
                     bullet: p.isList ? { level: 0 } : undefined,
-                    children: [ new TextRun({ text: p.text, bold: p.bold, italics: p.italic }) ]
+                    children: [new TextRun({ text: p.text, bold: p.bold, italics: p.italic })]
                 });
             });
 
             const doc = new Document({ sections: [{ children: docChildren }] });
-            
+
             const blob = await Packer.toBlob(doc);
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
@@ -185,7 +168,7 @@ function setupApplicationLogic() {
     });
 }
 
-// Start the entire process.
+// Start the process.
 initializeAppWhenReady();
 </script>
 
