@@ -5,6 +5,7 @@
 <title>Word Processor</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.2/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/docx/7.1.3/docx.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 <style>
 body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; }
 button { margin-right: 10px; padding: 6px 12px; }
@@ -31,8 +32,10 @@ const statusEl = document.getElementById("status");
 
 let uploadedFile = null;
 let cleanedText = "";
+let processedBlob = null;
 let originalFileName = "processed_document.docx";
 
+// Character replacement map
 const charMap = {"à":"a","À":"A","è":"e","È":"E","é":"e","É":"E","ì":"i","Ì":"I","ò":"o","Ò":"O","ù":"u","Ù":"U","—":", "};
 
 function setStatus(msg){ statusEl.textContent = "Status: " + msg; }
@@ -43,14 +46,18 @@ function cleanText(text){
   return out.replace(/[^\x00-\x7F•,\t\n\r ]/g,"");
 }
 
+// Upload
 uploadBtn.onclick = () => {
   if(!fileInput.files[0]) { setStatus("Please select a .docx file."); return; }
   uploadedFile = fileInput.files[0];
   originalFileName = uploadedFile.name.replace(/\.[^/.]+$/,"") + "_processed.docx";
+  processedBlob = null; // reset
   setStatus("File uploaded. Ready to process.");
   processBtn.disabled = false;
+  downloadBtn.disabled = true;
 };
 
+// Process
 processBtn.onclick = () => {
   if(!uploadedFile) { setStatus("Upload a file first."); return; }
   setStatus("Processing...");
@@ -62,26 +69,35 @@ processBtn.onclick = () => {
         cleanedText = cleanText(result.value);
         setStatus("Text cleaned. Ready to download.");
 
-        // Generate new .docx
+        // Generate new DOCX
         const doc = new docx.Document({
           sections: [{
             properties: {},
             children: [
-              new docx.Paragraph({children:[new docx.TextRun({text: cleanedText, font:"Times New Roman", size:24})]})
+              new docx.Paragraph({children:[
+                new docx.TextRun({text: cleanedText, font:"Times New Roman", size:24})
+              ]})
             ]
           }]
         });
 
         docx.Packer.toBlob(doc).then(blob=>{
-          downloadBtn.onclick = () => { saveAs(blob, originalFileName); };
+          processedBlob = blob;
           downloadBtn.disabled = false;
-        });
+        }).catch(err => setStatus("Error generating DOCX: " + err));
       })
-      .catch(err => setStatus("Error processing file: " + err));
+      .catch(err => setStatus("Error extracting text: " + err));
   };
   reader.readAsArrayBuffer(uploadedFile);
 };
+
+// Download
+downloadBtn.onclick = () => {
+  if(!processedBlob){ setStatus("No processed file to download."); return; }
+  saveAs(processedBlob, originalFileName);
+  setStatus("Download started.");
+};
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
 </body>
 </html>
