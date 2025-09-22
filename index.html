@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Word Document Processor (Preserve Formatting)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pizzip/3.1.7/pizzip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+</head>
+<body>
+  <h1>Word Document Processor</h1>
+
+  <!-- Accept both .docx and .doc -->
+  <input type="file" id="wordFile" accept=".doc,.docx,.dot,.dotx">
+  <br><br>
+
+  <button id="uploadButton">Upload</button>
+  <button id="processButton" disabled>Process</button>
+  <button id="downloadButton" disabled>Download</button>
+
+  <script>
+    let originalZip = null;
+    let processedBlob = null;
+
+    // Replacement map
+    const charMap = {
+      "à": "a", "À": "A",
+      "è": "e", "È": "E",
+      "é": "e", "É": "E",
+      "ì": "i", "Ì": "I",
+      "ò": "o", "Ò": "O",
+      "ù": "u", "Ù": "U",
+      "—": ", "
+    };
+
+    function cleanText(text) {
+      let result = text;
+      for (const [k, v] of Object.entries(charMap)) {
+        result = result.split(k).join(v);
+      }
+      // Remove unwanted non-ASCII characters (except • and ,)
+      result = result.replace(/[^\x00-\x7F•,]/g, "");
+      return result;
+    }
+
+    // Upload handler
+    document.getElementById("uploadButton").onclick = function () {
+      const file = document.getElementById("wordFile").files[0];
+      if (!file) {
+        alert("Please select a Word file first!");
+        return;
+      }
+
+      // Check extension
+      if (!file.name.endsWith(".docx")) {
+        alert("This tool only works with .docx files. Please convert your file to .docx first (open in Word/LibreOffice and 'Save As → .docx').");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        try {
+          const arrayBuffer = event.target.result;
+          originalZip = new PizZip(arrayBuffer);
+          alert("File uploaded successfully!");
+          document.getElementById("processButton").disabled = false;
+        } catch (err) {
+          console.error("Error loading file:", err);
+          alert("Invalid .docx file. Try opening and re-saving it in Word, then upload again.");
+        }
+      };
+      reader.readAsArrayBuffer(file); // Safe for .docx
+    };
+
+    // Process handler
+    document.getElementById("processButton").onclick = function () {
+      if (!originalZip) {
+        alert("Please upload a file first!");
+        return;
+      }
+
+      try {
+        // List of parts to process (main document + headers/footers if present)
+        const partsToProcess = ["word/document.xml"];
+        originalZip.file(/word\/header[0-9]*\.xml/).forEach(f => partsToProcess.push(f.name));
+        originalZip.file(/word\/footer[0-9]*\.xml/).forEach(f => partsToProcess.push(f.name));
+
+        partsToProcess.forEach(part => {
+          let xml = originalZip.file(part).asText();
+          xml = cleanText(xml);
+          originalZip.file(part, xml);
+        });
+
+        processedBlob = originalZip.generate({
+          type: "blob",
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        });
+
+        alert("Document processed successfully!");
+        document.getElementById("downloadButton").disabled = false;
+      } catch (err) {
+        console.error("Processing error:", err);
+        alert("Error while processing the document.");
+      }
+    };
+
+    // Download handler
+    document.getElementById("downloadButton").onclick = function () {
+      if (!processedBlob) {
+        alert("No processed document available!");
+        return;
+      }
+      saveAs(processedBlob, "processed_document.docx"); // Always .docx
+    };
+  </script>
+</body>
+</html>
